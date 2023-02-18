@@ -1,0 +1,403 @@
+import 'dart:convert';
+
+import 'package:dio/dio.dart';
+import 'package:flutter/material.dart';
+import 'package:fluttertoast/fluttertoast.dart';
+import 'package:fooddelivery_project/api/host.dart';
+import 'package:fooddelivery_project/cal/calculateDistance.dart';
+import 'package:fooddelivery_project/customer/debouncer.dart';
+import 'package:fooddelivery_project/dialog/dialog.dart';
+
+import 'package:fooddelivery_project/model/cart.dart';
+import 'package:fooddelivery_project/model/food.dart';
+import 'package:fooddelivery_project/model/sqlite_helper.dart';
+import 'package:fooddelivery_project/model/user.dart';
+import 'package:fooddelivery_project/style/font.dart';
+import 'package:fooddelivery_project/style/progress.dart';
+import 'package:intl/intl.dart';
+import 'package:location/location.dart';
+
+class SelectFood extends StatefulWidget {
+  final Restaurant restaurant;
+  const SelectFood({Key? key, required this.restaurant}) : super(key: key);
+
+  @override
+  State<SelectFood> createState() => _SelectFoodState();
+}
+
+class _SelectFoodState extends State<SelectFood> {
+  Restaurant? restaurant;
+  String idRestaurant = '';
+
+  List<Cart> carts = [];
+  List<Food> foods = [];
+  Location location = Location();
+  late double lat1 = 0.0, lng1 = 0.0, lat2, lng2;
+  int amount = 1;
+  Cart? cart;
+  String? idResSQL;
+  int length = 0;
+  String? idFoodSQL, foodNameSQL;
+
+  final Debouncer debouncer = Debouncer(milliseconds: 500);
+  List<Food> filterFoods = [];
+
+  @override
+  void initState() {
+    // TODO: implement initState
+    super.initState();
+    restaurant = widget.restaurant;
+    getLocation();
+    getFood();
+    getCart();
+  }
+
+  Future<Null> getCart() async {
+    var object = await SQLiteHelper().readAllCart();
+
+    for (var resultTotal in object) {
+      setState(() {
+        idFoodSQL = resultTotal.idFood!;
+      });
+    }
+  }
+
+  Future<Null> getLocation() async {
+    location.onLocationChanged.listen((event) {
+      lat1 = event.latitude!;
+      lng1 = event.longitude!;
+    });
+  }
+
+// ดึงรายการอาหารจาก id ของร้าานค้า
+  Future<Null> getFood() async {
+    idRestaurant = restaurant!.id!;
+    print('id = $idRestaurant');
+    String url =
+        '${MyHost().domain}/Project_Flutter/FoodDelivery/getFoodWhereId.php?isAdd=true&idRes=$idRestaurant';
+
+    Response response = await Dio().get(url);
+    var result = json.decode(response.data);
+
+    for (var map in result) {
+      Food food = Food.fromJson(map);
+
+      setState(() {
+        foods.add(food);
+        filterFoods.add(food);
+      });
+    }
+  }
+
+  Future<Null> orderCart(int index) async {
+    String restaurantName = restaurant!.restaurantName!;
+    String idFood = foods[index].id!;
+    String foodName = foods[index].foodName!;
+    String menuFood = foods[index].menuFood!;
+    String price = foods[index].foodPrice!;
+    String image = foods[index].image!;
+
+    double priceDouble = double.parse(price);
+    double sum = priceDouble * amount;
+    lat2 = double.parse(restaurant!.lat!);
+    lng2 = double.parse(restaurant!.lng!);
+
+    double distance = Cal().calShipping(lat1, lng1, lat2, lng2);
+    var myFormat = NumberFormat('#0.0#', 'en_US');
+    String distanceString = myFormat.format(distance);
+
+    int? transport = Cal().calculateTransport(distance);
+
+    // print(
+    //     'transport = $transport, distance = $distance, distanceString = $distanceString, sum = $sum');
+
+    //----------------------------------------------------------------------------
+
+    Map<String, dynamic> map = Map();
+    map['restaurantName'] = restaurantName;
+    map['idRes'] = idRestaurant;
+    map['idFood'] = idFood;
+    map['foodName'] = foodName;
+    map['foodPrice'] = price;
+    map['amount'] = amount.toString();
+    map['sum'] = sum.toString();
+    map['distance'] = distanceString.toString();
+    map['menuFood'] = menuFood;
+    map['transport'] = transport.toString();
+    map['image'] = image;
+    // print('map = ${map.toString()}');
+
+    Cart cartModel = Cart.fromJson(map);
+
+    var object = await SQLiteHelper().readAllCart();
+
+    if (object.length == 0) {
+      await SQLiteHelper().insertData(cartModel).then((value) {
+        Fluttertoast.showToast(
+            msg: 'เพิ่ม ${cartModel.foodName} ลงในตะกร้านเรียบร้อยร้อย');
+      });
+    } else {
+      String idResSQL = object[0].idRes!;
+
+      if (idRestaurant == idResSQL) {
+        if (idFoodSQL == idFood) {
+          print('idFood == $idFood, idFoodSQL == $idFoodSQL');
+          dialog(context, '${foodName} มีในตะกร้าอยู่แล้ว');
+        } else {
+          print('idFood2 == $idFood, idFoodSQL2 == $idFoodSQL');
+          await SQLiteHelper().insertData(cartModel).then((value) {
+            Fluttertoast.showToast(
+                msg: 'เพิ่ม ${cartModel.foodName} ลงในตะกร้านเรียบร้อยร้อย');
+          });
+        }
+      } else {
+        showDialog(
+          context: context,
+          builder: (context) => SimpleDialog(
+            children: [
+              ListTile(
+                title: Text(
+                  'Remove your previous item?',
+                  style: MyFont().lookpeach20(),
+                ),
+                subtitle: const Text(
+                    'คุณเลือกร้านอื่น หากดำเนินการต่อรายการในตะกร้าของคุณจะถูกลบ'),
+              ),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  ElevatedButton(
+                    style: ElevatedButton.styleFrom(primary: Colors.green),
+                    onPressed: () async {
+                      await SQLiteHelper().deleteAllCart().then((value) {
+                        Navigator.pop(context);
+                      });
+                    },
+                    child: Text(
+                      'ลบ',
+                      style: MyFont().lookpeach18(),
+                    ),
+                  ),
+                  ElevatedButton(
+                    style: ElevatedButton.styleFrom(primary: Colors.red),
+                    onPressed: () {
+                      Navigator.pop(context);
+                    },
+                    child: Text(
+                      'ยกเลิก',
+                      style: MyFont().lookpeach18(),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+        body: Stack(
+      children: [
+        foods.length == 0
+            ? showProgress()
+            : Container(
+                padding: EdgeInsets.only(top: 80.0),
+                child: ListView.builder(
+                  itemCount: filterFoods.length,
+                  itemBuilder: (context, index) {
+                    return Card(
+                      margin: EdgeInsets.only(right: 10, top: 8, left: 10),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10.0),
+                      ),
+                      child: GestureDetector(
+                        onTap: () {
+                          print('click index = $index');
+                          showDialog(
+                            context: context,
+                            builder: (context) => StatefulBuilder(
+                              builder: ((context, setState) {
+                                return AlertDialog(
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(20.0),
+                                  ),
+                                  title: Row(
+                                    children: [
+                                      Text(
+                                        '${foods[index].foodName}',
+                                        style: MyFont().lookpeach18(),
+                                      ),
+                                    ],
+                                  ),
+                                  content: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Container(
+                                        width: 220.0,
+                                        height: 150.0,
+                                        child: Image.network(
+                                          '${MyHost().domain}/${filterFoods[index].image}',
+                                          fit: BoxFit.cover,
+                                        ),
+                                      ),
+                                      Row(
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.spaceEvenly,
+                                        children: [
+                                          IconButton(
+                                            onPressed: () {
+                                              if (amount > 1) {
+                                                setState(() {
+                                                  amount--;
+                                                });
+                                              }
+                                            },
+                                            icon:
+                                                const Icon(Icons.remove_circle),
+                                            iconSize: 36.0,
+                                            color: Colors.red,
+                                          ),
+                                          Text(
+                                            amount.toString(),
+                                            style: MyFont().lookpeach20(),
+                                          ),
+                                          IconButton(
+                                            onPressed: () {
+                                              setState(() {
+                                                amount++;
+                                              });
+                                            },
+                                            icon: const Icon(Icons.add_circle),
+                                            iconSize: 36.0,
+                                            color: Colors.green,
+                                          ),
+                                        ],
+                                      ),
+                                      Row(
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.spaceAround,
+                                        children: [
+                                          Container(
+                                            width: 100.0,
+                                            child: ElevatedButton(
+                                              style: ElevatedButton.styleFrom(
+                                                primary: Colors.green,
+                                              ),
+                                              onPressed: () async {
+                                                orderCart(index).then((value) {
+                                                  getCart();
+                                                });
+
+                                                Navigator.pop(context);
+                                              },
+                                              child: const Icon(
+                                                Icons.add_shopping_cart,
+                                              ),
+                                            ),
+                                          ),
+                                          Container(
+                                            width: 100.0,
+                                            child: ElevatedButton(
+                                              style: ElevatedButton.styleFrom(
+                                                  primary: Colors.red),
+                                              onPressed: () {
+                                                Navigator.pop(context);
+                                              },
+                                              child: Icon(Icons.cancel),
+                                            ),
+                                          )
+                                        ],
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              }),
+                            ),
+                          );
+                        },
+                        child: Column(
+                          children: [
+                            Row(
+                              children: [
+                                Container(
+                                  margin: EdgeInsets.only(left: 10.0),
+                                  width: 100,
+                                  height: 80,
+                                  child: Image.network(
+                                    '${MyHost().domain}/${filterFoods[index].image}',
+                                    fit: BoxFit.cover,
+                                  ),
+                                ),
+                                Container(
+                                  margin: EdgeInsets.only(left: 30),
+                                  width:
+                                      MediaQuery.of(context).size.width * 0.4,
+                                  height:
+                                      MediaQuery.of(context).size.width * 0.3,
+                                  child: SingleChildScrollView(
+                                    child: Column(
+                                      children: [
+                                        Text(
+                                          '${filterFoods[index].foodName}',
+                                          style: MyFont().lookpeach18(),
+                                        ),
+                                        Text(
+                                          'ราคา ${filterFoods[index].foodPrice} บาท',
+                                          style: MyFont().lookpeach(),
+                                        ),
+                                        Text(
+                                          'รายละเอียด ${filterFoods[index].detail}',
+                                          style: MyFont().lookpeach(),
+                                        ),
+                                        Text(
+                                          'เมนูอาหาร ${filterFoods[index].menuFood}',
+                                          style: MyFont().lookpeach(),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+        Container(
+          margin: EdgeInsets.only(left: 5),
+          width: 380,
+          padding: const EdgeInsets.only(top: 20.0),
+          child: TextFormField(
+            onChanged: (value) {
+              debouncer.run(() {
+                setState(() {
+                  filterFoods = foods
+                      .where((u) => (u.foodName!
+                          .toLowerCase()
+                          .contains(value.toLowerCase())))
+                      .toList();
+                });
+              });
+            },
+            decoration: InputDecoration(
+                label: Text(
+                  'ค้นหารอาหาร',
+                  style: MyFont().lookpeach(),
+                ),
+                prefixIcon: Icon(Icons.search),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(15.0),
+                )),
+          ),
+        ),
+      ],
+    ));
+  }
+}

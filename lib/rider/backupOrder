@@ -1,0 +1,426 @@
+import 'dart:convert';
+
+import 'package:dio/dio.dart';
+import 'package:flutter/material.dart';
+import 'package:fluttertoast/fluttertoast.dart';
+import 'package:fooddelivery_project/api/host.dart';
+import 'package:fooddelivery_project/cal/calculateDistance.dart';
+import 'package:fooddelivery_project/dialog/dialog.dart';
+import 'package:fooddelivery_project/model/order.dart';
+import 'package:fooddelivery_project/rider/acceptOrder.dart';
+
+import 'package:fooddelivery_project/style/font.dart';
+import 'package:fooddelivery_project/style/progress.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+class ShowOrderCus extends StatefulWidget {
+  const ShowOrderCus({Key? key}) : super(key: key);
+
+  @override
+  State<ShowOrderCus> createState() => _ShowOrderCusState();
+}
+
+class _ShowOrderCusState extends State<ShowOrderCus> {
+  bool loadStatus = true;
+  bool status = true;
+  String? idRider;
+  String? idOrder;
+  Order? order;
+  List<Order> orders = [];
+
+  List<List<String>> listFoodName = [];
+  List<List<String>> listFoodPrice = [];
+  List<List<String>> listAmount = [];
+  List<List<String>> listSum = [];
+  List<double> totals = [];
+  double sumTotal = 0.0;
+  double transportDouble = 0.0;
+
+  String? statusOrder;
+
+  @override
+  void initState() {
+    // TODO: implement initState
+    super.initState();
+
+    getIdRider();
+  }
+
+  Future<Null> getIdRider() async {
+    if (orders.length != 0) {
+      loadStatus = true;
+      orders.clear();
+      status = true;
+    }
+    SharedPreferences preferences = await SharedPreferences.getInstance();
+    idRider = preferences.getString('id');
+    print('idRider = $idRider');
+    String url =
+        '${MyHost().domain}/Project_Flutter/FoodDelivery/getOrderWhereIdRider.php?isAdd=true';
+
+    await Dio().get(url).then((value) {
+      setState(() {
+        loadStatus = false; // no Process Load
+      });
+
+      // print('value == $value');
+      var result = json.decode(value.data);
+
+      print('result == $result');
+      if (result.toString() != '') {
+        for (var map in result) {
+          order = Order.fromJson(map);
+          List<String> foodName = Cal().subString(order!.foodName!);
+          List<String> foodPrice = Cal().subString(order!.foodPrice!);
+          List<String> amount = Cal().subString(order!.amount!);
+          List<String> sum = Cal().subString(order!.sum!);
+
+          double total = 0.0;
+
+          String transport = order!.transport!;
+
+          transportDouble = double.parse(transport);
+
+          print('transport = $transport');
+
+          for (var item in sum) {
+            total = total + double.parse(item);
+
+            print('total= $total');
+          }
+
+          setState(() {
+            sumTotal = total + transportDouble;
+            print('total = $sumTotal');
+            orders.add(order!);
+            listFoodName.add(foodName);
+            listFoodPrice.add(foodPrice);
+            listAmount.add(amount);
+            listSum.add(sum);
+            totals.add(sumTotal);
+
+            // print(
+            //     'listFoodName == $listFoodName,listFoodPrice = $listFoodPrice, listAmount = $listAmount,listSum = $listSum, total = $totals');
+          });
+        }
+      } else {
+        setState(() {
+          status = true; // ไม่มีข้อมูล
+        });
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+        body: Container(
+      decoration: const BoxDecoration(
+          gradient: LinearGradient(
+              begin: Alignment.topRight,
+              end: Alignment.bottomRight,
+              colors: [
+            Colors.blue,
+            Color.fromARGB(255, 223, 158, 153),
+          ])),
+      child: loadStatus
+          ? showProgress()
+          : status
+              ? showContent()
+              : const Center(
+                  child: Text('No Order'),
+                ),
+    ));
+  }
+
+  Widget showContent() {
+    return Container(
+      child: ListView.builder(
+          itemCount: orders.length,
+          itemBuilder: (context, index) {
+            statusOrder = orders[index].status;
+            print(statusOrder);
+
+            return Visibility(
+              visible: true,
+              child: Padding(
+                padding: const EdgeInsets.all(8.0),
+                child: Container(
+                  margin: EdgeInsets.symmetric(horizontal: 10.0, vertical: 3.0),
+                  child: Card(
+                    color:
+                        index % 2 == 0 ? Colors.grey.shade500 : Colors.white38,
+                    child: Padding(
+                      padding: const EdgeInsets.all(15.0),
+                      child: Column(
+                        children: [
+                          Text(
+                            'รายการจากร้าน ${orders[index].restaurantName}',
+                            style: MyFont().lookpeach18(),
+                          ),
+                          Text(
+                            '${orders[index].dateTime}',
+                            style: MyFont().lookpeach18(),
+                          ),
+                          SizedBox(height: 10.0),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                            children: [
+                              SizedBox(
+                                width: 150,
+                                child: ElevatedButton(
+                                  style: ElevatedButton.styleFrom(
+                                      primary: Colors.green),
+                                  child: const Text(
+                                    'รับออเดอร์ ',
+                                  ),
+                                  onPressed: () async {
+                                    showDialog(
+                                        context: context,
+                                        builder: (context) {
+                                          return SimpleDialog(
+                                            title: ListTile(
+                                              leading: Text('รายละเอียด',
+                                                  style:
+                                                      MyFont().lookpeach18()),
+                                            ),
+                                            children: [
+                                              Padding(
+                                                padding:
+                                                    const EdgeInsets.all(8.0),
+                                                child: Column(
+                                                  children: [
+                                                    Row(
+                                                      children: const [
+                                                        Expanded(
+                                                          flex: 3,
+                                                          child: Text(
+                                                            'ชื่ออาหาร',
+                                                            style: TextStyle(
+                                                              fontFamily:
+                                                                  'lookpeach',
+                                                              color: Color
+                                                                  .fromARGB(
+                                                                      255,
+                                                                      11,
+                                                                      11,
+                                                                      11),
+                                                              fontSize: 18,
+                                                            ),
+                                                          ),
+                                                        ),
+                                                        Expanded(
+                                                          flex: 2,
+                                                          child: Text(
+                                                            'ราคา',
+                                                            style: TextStyle(
+                                                              fontFamily:
+                                                                  'lookpeach',
+                                                              color: Color
+                                                                  .fromARGB(
+                                                                      255,
+                                                                      11,
+                                                                      11,
+                                                                      11),
+                                                              fontSize: 18,
+                                                            ),
+                                                          ),
+                                                        ),
+                                                        Expanded(
+                                                          flex: 2,
+                                                          child: Text(
+                                                            'จำนวน',
+                                                            style: TextStyle(
+                                                              fontFamily:
+                                                                  'lookpeach',
+                                                              color: Color
+                                                                  .fromARGB(
+                                                                      255,
+                                                                      11,
+                                                                      11,
+                                                                      11),
+                                                              fontSize: 18,
+                                                            ),
+                                                          ),
+                                                        ),
+                                                        Expanded(
+                                                          flex: 2,
+                                                          child: Text(
+                                                            'รวม',
+                                                            style: TextStyle(
+                                                              fontFamily:
+                                                                  'lookpeach',
+                                                              color: Color
+                                                                  .fromARGB(
+                                                                      255,
+                                                                      11,
+                                                                      11,
+                                                                      11),
+                                                              fontSize: 20,
+                                                            ),
+                                                          ),
+                                                        ),
+                                                      ],
+                                                    ),
+                                                    Row(
+                                                      children: [
+                                                        Expanded(
+                                                            flex: 3,
+                                                            child: Text(
+                                                                listFoodName[
+                                                                        index]
+                                                                    .first)),
+                                                        Expanded(
+                                                          flex: 2,
+                                                          child: Text(
+                                                              listFoodPrice[
+                                                                      index]
+                                                                  .first),
+                                                        ),
+                                                        Expanded(
+                                                          flex: 2,
+                                                          child: Text(
+                                                              listAmount[index]
+                                                                  .first),
+                                                        ),
+                                                        Expanded(
+                                                          flex: 2,
+                                                          child: Text(
+                                                              listSum[index]
+                                                                  .first),
+                                                        ),
+                                                      ],
+                                                    ),
+                                                    Row(
+                                                      mainAxisAlignment:
+                                                          MainAxisAlignment
+                                                              .spaceBetween,
+                                                      children: [
+                                                        Container(
+                                                          child: Text(
+                                                            'ค่าจัดส่ง ${orders[index].transport} บาท',
+                                                            style: MyFont()
+                                                                .lookpeach(),
+                                                          ),
+                                                        ),
+                                                        Container(
+                                                          child: Text(
+                                                            'รวมสุทธิ ${totals[index]} บาท',
+                                                            style: const TextStyle(
+                                                                fontFamily:
+                                                                    'lookpeach',
+                                                                fontSize: 18,
+                                                                color: Color
+                                                                    .fromARGB(
+                                                                        255,
+                                                                        251,
+                                                                        5,
+                                                                        13)),
+                                                          ),
+                                                        ),
+                                                      ],
+                                                    ),
+                                                    Container(
+                                                      margin:
+                                                          const EdgeInsets.only(
+                                                              right: 80.0),
+                                                      child: Text(
+                                                        'ประเภทชำระ ${orders[index].payment}',
+                                                        style: MyFont()
+                                                            .lookpeach(),
+                                                      ),
+                                                    ),
+                                                    Container(
+                                                      width: 200,
+                                                      child: ElevatedButton(
+                                                        style: ElevatedButton
+                                                            .styleFrom(
+                                                                primary: const Color
+                                                                        .fromARGB(
+                                                                    255,
+                                                                    81,
+                                                                    167,
+                                                                    238)),
+                                                        onPressed: () async {
+                                                          // if () {
+
+                                                          // }
+                                                          SharedPreferences
+                                                              preferences =
+                                                              await SharedPreferences
+                                                                  .getInstance();
+                                                          String? idRider =
+                                                              preferences
+                                                                  .getString(
+                                                                      'id');
+                                                          idOrder =
+                                                              orders[index].id;
+                                                          String idRes =
+                                                              orders[index]
+                                                                  .idRes!;
+                                                          String idCus =
+                                                              orders[index]
+                                                                  .idCus!;
+                                                          print(
+                                                              'idCus = $idCus');
+
+                                                          String url =
+                                                              '${MyHost().domain}/Project_Flutter/FoodDelivery/acceptOrderWhereIdRider.php?isAdd=true&id=$idOrder&idRider=$idRider';
+
+                                                          await Dio()
+                                                              .get(url)
+                                                              .then(
+                                                                  (value) async {
+                                                            String url =
+                                                                '${MyHost().domain}/Project_Flutter/FoodDelivery/updateOrderStatus.php?isAdd=true&id=$idOrder&Status=Accept';
+
+                                                            await Dio()
+                                                                .get(url)
+                                                                .then((value) {
+                                                              MaterialPageRoute
+                                                                  route =
+                                                                  MaterialPageRoute(
+                                                                      builder:
+                                                                          (context) =>
+                                                                              AcceptOrder(
+                                                                                idRes: idRes,
+                                                                                idOrder: idOrder!,
+                                                                                idCus: idCus,
+                                                                              ));
+                                                              Navigator.push(
+                                                                  context,
+                                                                  route);
+                                                              dialog(context,
+                                                                  'รับออเดอร์เรียบร้อย');
+                                                            });
+                                                          });
+                                                        },
+                                                        child: Text(
+                                                          'ตกลง',
+                                                          style: MyFont()
+                                                              .lookpeach(),
+                                                        ),
+                                                      ),
+                                                    )
+                                                  ],
+                                                ),
+                                              ),
+                                            ],
+                                          );
+                                        });
+                                  },
+                                ),
+                              ),
+                            ],
+                          )
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            );
+          }),
+    );
+  }
+}

@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "285870838024",
+    "project_id": "messageflutter-bceba",
+    "storage_bucket": "messageflutter-bceba.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:285870838024:android:1d2cf7e25c7f52e4139cbd",
+        "android_client_info": {
+          "package_name": "com.example.fooddelivery_project"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "285870838024-plau4s2iuue6fhd8ggguusjaec2uf6ed.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAo6pnSHBnqRjq6NNZG_tb43jQZFIer04o"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "285870838024-plau4s2iuue6fhd8ggguusjaec2uf6ed.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
